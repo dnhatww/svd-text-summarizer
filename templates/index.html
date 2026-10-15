@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVD Text Summarizer – Tóm tắt văn bản tiếng Việt bằng SVD &amp; LSA</title>
+  <meta name="description" content="Hệ thống tóm tắt văn bản tiếng Việt theo hướng trích xuất, sử dụng Singular Value Decomposition (SVD) kết hợp Latent Semantic Analysis (LSA).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <!-- ============ HEADER ============ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="dots" aria-hidden="true">
+          <span class="dot dot-orange"></span><span class="dot dot-green"></span><span class="dot dot-blue"></span>
+        </span>
+        <h1>SVD Text Summarizer</h1>
+      </div>
+      <p class="header-sub">Tóm tắt văn bản tiếng Việt · SVD + LSA (Steinberger–Ježek)</p>
+      <span class="status-pill" id="statusPill" data-state="idle">
+        <span class="status-dot"></span><span id="statusText">Sẵn sàng</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- ============ KHU VỰC CHÍNH – 3 CỘT ============ -->
+    <section class="main-grid" aria-label="Khu vực tóm tắt">
+
+      <!-- Cột trái: Văn bản đầu vào -->
+      <article class="card input-card">
+        <div class="card-head">
+          <h2 class="card-title">Văn bản đầu vào</h2>
+          <span class="char-count" id="charCount">0 ký tự</span>
+        </div>
+
+        <textarea id="inputText" class="text-input" spellcheck="false"
+                  maxlength="{{ max_chars }}"
+                  placeholder="Nhập hoặc dán văn bản tiếng Việt cần tóm tắt vào đây...">AI phát triển công nghệ. AI ứng dụng trong giáo dục. Giáo dục sử dụng công nghệ AI.</textarea>
+
+        <div class="file-row">
+          <input type="file" id="fileInput" accept=".txt,text/plain" hidden>
+          <button type="button" class="btn btn-outline" id="uploadBtn">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zm7-18-5.5 5.5 1.41 1.41L11 5.83V16h2V5.83l3.09 3.08 1.41-1.41L12 2z"/></svg>
+            Tải tệp TXT
+          </button>
+          <button type="button" class="btn btn-ghost" id="clearBtn" title="Xóa văn bản">Xóa</button>
+          <button type="button" class="btn btn-ghost" id="sampleBtn" title="Văn bản mẫu dài hơn">Mẫu dài</button>
+        </div>
+        <p class="file-name" id="fileName" hidden></p>
+
+        <div class="config">
+          <div class="field">
+            <label for="kInput">Số thành phần k</label>
+            <div class="k-control">
+              <button type="button" class="step-btn" id="kMinus" aria-label="Giảm k">−</button>
+              <input type="number" id="kInput" min="1" value="2" step="1" inputmode="numeric">
+              <button type="button" class="step-btn" id="kPlus" aria-label="Tăng k">+</button>
+            </div>
+            <small class="hint" id="kHint">1 ≤ k ≤ rank(A)</small>
+          </div>
+
+          <div class="field">
+            <label for="weighting">Biểu diễn ma trận</label>
+            <select id="weighting">
+              <option value="bow" selected>Bag of Words</option>
+              <option value="tfidf">TF-IDF</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label" id="ratioLabel">Tỷ lệ tóm tắt</span>
+          <div class="ratio-group" role="radiogroup" aria-labelledby="ratioLabel">
+            <button type="button" class="ratio-btn" data-ratio="10" role="radio" aria-checked="false" id="ratio10">10%</button>
+            <button type="button" class="ratio-btn" data-ratio="20" role="radio" aria-checked="false" id="ratio20">20%</button>
+            <button type="button" class="ratio-btn active" data-ratio="30" role="radio" aria-checked="true" id="ratio30">30%</button>
+            <button type="button" class="ratio-btn" data-ratio="50" role="radio" aria-checked="false" id="ratio50">50%</button>
+          </div>
+        </div>
+
+        <label class="check">
+          <input type="checkbox" id="stopwords" checked>
+          <span>Loại bỏ stopwords (giữ từ phủ định)</span>
+        </label>
+
+        <button type="button" class="btn btn-primary btn-lg" id="summarizeBtn">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-label">Tóm tắt văn bản</span>
+        </button>
+      </article>
+
+      <!-- Cột giữa: Bản tóm tắt -->
+      <article class="center-col">
+        <div class="card summary-card">
+          <div class="card-head">
+            <h2 class="card-title">Bản tóm tắt đầu ra</h2>
+            <div class="actions">
+              <button type="button" class="icon-btn" id="copyBtn" disabled title="Sao chép">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
+                <span>Sao chép</span>
+              </button>
+              <button type="button" class="icon-btn" id="downloadBtn" disabled title="Tải TXT">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+                <span>Tải TXT</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="config-badge" id="configBadge" hidden></div>
+          <div class="stale-banner" id="staleBanner" hidden>
+            Cấu hình đã thay đổi. Nhấn <b>“Tóm tắt văn bản”</b> để cập nhật kết quả.
+          </div>
+
+          <div class="summary-body" id="summaryBody" aria-live="polite">
+            <div class="empty-state" id="summaryEmpty">
+              <div class="empty-icon">Σ</div>
+              <p>Chưa có bản tóm tắt.</p>
+              <small>Nhập văn bản, chọn k và tỷ lệ, sau đó nhấn <b>Tóm tắt văn bản</b>.</small>
+            </div>
+          </div>
+          <div class="warn-list" id="warnList" hidden></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Số câu đầu vào</span>
+            <span class="stat-value" id="statInput">–</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Số câu giữ lại</span>
+            <span class="stat-value accent-green" id="statKept">–</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Tỷ lệ giữ lại</span>
+            <span class="stat-value accent-orange" id="statRatio">–</span>
+          </div>
+        </div>
+        <div class="mini-stats" id="miniStats" hidden></div>
+      </article>
+
+      <!-- Cột phải: Điểm quan trọng của câu -->
+      <article class="card score-card">
+        <div class="card-head">
+          <h2 class="card-title">Điểm quan trọng của câu</h2>
+        </div>
+        <div class="table-wrap score-wrap">
+          <table class="data-table" id="scoreTable">
+            <thead>
+              <tr><th>Câu</th><th>Điểm</th><th>Hạng</th></tr>
+            </thead>
+            <tbody id="scoreBody">
+              <tr class="placeholder-row"><td colspan="3">Chưa có dữ liệu</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="legend">
+          <span><i class="swatch swatch-selected"></i>Câu được chọn</span>
+          <span><i class="swatch swatch-normal"></i>Câu không chọn</span>
+        </div>
+        <p class="formula">Score(j) = √( Σ<sub>i=1..k</sub> σ<sub>i</sub>² · v<sub>ij</sub>² )</p>
+      </article>
+    </section>
+
+    <!-- ============ KHU VỰC PHÂN TÍCH ============ -->
+    <section class="analysis-grid" aria-label="Phân tích dữ liệu">
+      <article class="card">
+        <div class="card-head">
+          <h2 class="card-title">Ma trận từ–câu (thu nhỏ)</h2>
+          <span class="tag" id="matrixTag">BoW</span>
+        </div>
+        <div class="table-wrap matrix-wrap">
+          <table class="data-table matrix-table" id="matrixTable">
+            <thead><tr><th>Từ</th></tr></thead>
+            <tbody><tr class="placeholder-row"><td>Chưa có dữ liệu</td></tr></tbody>
+          </table>
+        </div>
+        <p class="note" id="matrixNote"></p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2 class="card-title">Giá trị suy biến σ</h2>
+          <span class="tag tag-orange" id="sigmaTag">k = –</span>
+        </div>
+        <div class="chart-box">
+          <canvas id="sigmaChart" aria-label="Biểu đồ giá trị suy biến"></canvas>
+          <div class="chart-empty" id="sigmaEmpty">Chưa có dữ liệu</div>
+        </div>
+        <p class="note" id="sigmaNote"></p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2 class="card-title">Điểm quan trọng của từng câu</h2>
+        </div>
+        <div class="chart-box">
+          <canvas id="scoreChart" aria-label="Biểu đồ điểm quan trọng câu"></canvas>
+          <div class="chart-empty" id="scoreEmpty">Chưa có dữ liệu</div>
+        </div>
+        <div class="legend">
+          <span><i class="swatch swatch-orange"></i>Được chọn</span>
+          <span><i class="swatch swatch-blue"></i>Không chọn</span>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    Extractive Summarization · A = UΣVᵀ · Bộ tách từ: <span id="tokenizerName">…</span>
+  </footer>
+
+  <div class="toast-stack" id="toastStack" aria-live="assertive"></div>
+
+  <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
